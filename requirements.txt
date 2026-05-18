@@ -1,0 +1,14 @@
+langchain-openai 
+langgraph 
+langchain
+langgraph-checkpoint-redis
+dotenv
+pillow
+streamlit
+psycopg[binary,pool]
+langgraph-checkpoint-postgres
+nats-py
+fastapi
+langchain-tavily
+langchain-community
+tavily-python

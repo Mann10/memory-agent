@@ -17,34 +17,8 @@ The architecture splits into two runtime processes:
 
 ## Architecture
 
-```
-+-----------+     HTTP      +------------------+     ainvoke      +------------------+
-|  Client   | ------------> |  FastAPI         | ---------------> |  LangGraph       |
-|           |               |  (main.py)       |                  |  (agent.py)      |
-+-----------+               +------------------+                  +------------------+
-                                                                      |
-                                      +-------------------------------+-------------------+
-                                      |                                   |               |
-                                      v                                   v               v
-                              +---------------+                  +----------------+  +---------+
-                              |  Redis        |                  |  PostgreSQL    |  |  NATS   |
-                              |  (checkpoints)|                  |  + pgvector     |  |JetStream|
-                              +---------------+                  |  (memories)    |  +---------+
-                                                               +----------------+      |
-                                                                                      | publish
-                                                                                      v
-                                                                              +----------------+
-                                                                              |  Worker        |
-                                                                              |  (worker.py)   |
-                                                                              +----------------+
-                                                                                      |
-                                                                                      v
-                                                                              +----------------+
-                                                                              |  PostgreSQL    |
-                                                                              |  + pgvector     |
-                                                                              |  (upsert facts) |
-                                                                              +----------------+
-```
+<img width="1583" height="1740" alt="image" src="https://github.com/user-attachments/assets/92e9deeb-18a9-4124-8551-a99539192f7e" />
+
 
 ### Components
 
@@ -70,7 +44,7 @@ sequenceDiagram
     participant API as FastAPI (main.py)
     participant G as LangGraph (agent.py)
     participant R as Redis (AsyncRedisSaver)
-    participant PG as PostgreSQL + pgvector
+    participant PG as PostgreSQL
     participant N as NATS JetStream
     participant W as Worker (worker.py)
     participant LLM as LLM (OpenAI/LiteLLM)

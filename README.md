@@ -43,7 +43,7 @@ sequenceDiagram
     participant C as Client
     participant API as FastAPI (main.py)
     participant G as LangGraph (agent.py)
-    participant PG as PostgreSQL + pgvector
+    participant PG as PostgreSQL
     participant N as NATS JetStream
     participant W as Worker (worker.py)
     participant LLM as LLM (OpenAI/LiteLLM)

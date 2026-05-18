@@ -46,7 +46,7 @@ The architecture splits into two runtime processes:
                                                                               +----------------+
 ```
 
-### Files
+### Components
 
 | File | Purpose |
 |------|---------|
@@ -69,6 +69,7 @@ sequenceDiagram
     participant C as Client
     participant API as FastAPI (main.py)
     participant G as LangGraph (agent.py)
+    participant R as Redis (AsyncRedisSaver)
     participant PG as PostgreSQL + pgvector
     participant N as NATS JetStream
     participant W as Worker (worker.py)
@@ -76,9 +77,12 @@ sequenceDiagram
     participant T as Tavily API
 
     C->>API: POST /chat<br>{user_id, thread_id, message}
-    API->>G: ainvoke(user_input)
+    API->>G: ainvoke(user_input, config)
 
+    G->>R: load checkpoint<br>for thread_id
+    R-->>G: restore prior state
     G->>G: load_node()<br>reads user_id from config
+
     G->>PG: store.search(("memories", user_id))<br>limit=100
     PG-->>G: return list of facts
     G->>G: memory_node()<br>builds memory_context string
@@ -91,6 +95,7 @@ sequenceDiagram
     end
     LLM-->>G: assistant reply
 
+    G->>R: save checkpoint<br>thread state
     G->>G: save_node()<br>publish_exchange() to NATS
     G-->>API: return {reply}
     API-->>C: 200 OK<br>{thread_id, reply}
@@ -187,11 +192,11 @@ The app loads these automatically via `python-dotenv`.
 docker-compose up -d
 ```
 
-This starts:
+This starts three containers:
 
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
-| Redis | `redis:8.0-rc1` | `6379` | Thread checkpoints via `AsyncRedisSaver` |
+| Redis | `redis:8.0-rc1` | `6379` | **Thread checkpoints** via `AsyncRedisSaver` |
 | PostgreSQL | `pgvector/pgvector:pg16` | `5432` | Long-term memory via `PostgresStore` |
 | NATS | `nats:2.10-alpine` | `4222` (clients), `8222` (monitoring) | Async messaging between agent and worker |
 
@@ -296,6 +301,14 @@ The LangGraph graph has five nodes:
 4. **`tool_node`**: Executes `search_web` via `AsyncTavilyClient`.
 5. **`save_node`**: Publishes the turn to NATS via `publish_exchange()` for background fact extraction.
 
+### Thread Checkpoints (Redis)
+
+LangGraph's `AsyncRedisSaver` (connected via `REDIS_URI`) automatically checkpoints the full graph state after every node execution. When you reuse a `thread_id`, the graph resumes from the last checkpoint stored in Redis. This gives you:
+
+- **Short-term memory** within a conversation thread
+- **Resumability** if the server restarts mid-conversation
+- **Summarization** when history exceeds `SUMMARY_MSG_LIMIT` (10 messages); older messages are summarized and the last `SUMMARY_KEEP` (4) are kept in full context
+
 ### Memory Extraction Flow (worker.py)
 
 1. **Filter**: `worth_extracting()` runs a cheap regex check against `FACT_PATTERNS` (e.g., "I am", "my name", "I work"). If no match, the message is dropped without LLM cost.
@@ -313,7 +326,7 @@ The LangGraph graph has five nodes:
 | `LITELLM_API_BASE` | Yes | - | Base URL for LLM API |
 | `MODEL` | Yes | - | Model name (e.g., `gpt-4o-mini`) |
 | `TAVILY_API_KEY` | Yes | - | Tavily web search API key |
-| `REDIS_URI` | No | `redis://localhost:6379` | Redis connection string |
+| `REDIS_URI` | No | `redis://localhost:6379` | Redis connection string for thread checkpoints |
 | `DB_URI` | No | `postgresql://postgres:postgres@localhost:5432/agent_memory` | PostgreSQL connection string |
 | `NATS_URI` | No | `nats://localhost:4222` | NATS connection string |
 | `LANGCHAIN_TRACING_V2` | No | - | Enable LangSmith tracing |
@@ -346,6 +359,7 @@ From `requirements.txt`:
 
 - The graph is fully async. Every node is an `async def` function.
 - `PostgresStore` is initialized once in `get_stores()` and held at module level for direct access by `memory_node`.
+- `AsyncRedisSaver` is initialized in the same `get_stores()` call and passed to `build_graph()` as the checkpointer.
 - The worker uses a durable NATS subscription (`durable="fact-extractor"`) so it resumes from the last acknowledged message after restarts.
 - All Docker services include healthchecks.
 - The `.gitignore` file is 21 bytes (likely excludes `__pycache__/` or similar).
